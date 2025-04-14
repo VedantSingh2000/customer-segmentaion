@@ -14,16 +14,6 @@ def load_data(file_path):
     """Loads data from Excel file and performs initial data cleaning."""
     data = pd.read_excel(file_path)
     data['Dt_Customer'] = pd.to_datetime(data['Dt_Customer'], format='%d-%m-%Y')
-    median_income = data['Income'].median()
-    data['Income'] = data['Income'].fillna(median_income)
-
-    # Outlier handling for Income (IQR method)
-    Q1 = data['Income'].quantile(0.25)
-    Q3 = data['Income'].quantile(0.75)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
-    data['Income'] = np.clip(data['Income'], lower_bound, upper_bound)
     return data
 
 
@@ -35,6 +25,10 @@ def feature_engineering(data):
                      'MntFishProducts', 'MntSweetProducts', 'MntGoldProds']
     data['Total_Spending'] = data[spending_cols].sum(axis=1)
     spending_cap = data['Total_Spending'].quantile(0.99)
+    
+    # Add count of values capped in 'Total_Spending'
+    capped_count = (data['Total_Spending'] > spending_cap).sum()
+    
     data['Total_Spending'] = np.where(data['Total_Spending'] > spending_cap, spending_cap,
                                         data['Total_Spending'])
 
@@ -54,9 +48,9 @@ def feature_engineering(data):
         'PhD': 'Postgraduate'
     })
 
-    data.drop(['ID', 'Year_Birth', 'Dt_Customer', 'Z_CostContact', 'Z_Revenue'], axis=1,
-              inplace=True)  # Drop before encoding
-    return data
+    deleted_cols = ['ID', 'Year_Birth', 'Dt_Customer', 'Z_CostContact', 'Z_Revenue']
+    data.drop(deleted_cols, axis=1, inplace=True)
+    return data, deleted_cols, capped_count
 
 
 def train_and_evaluate_rf(data, features, target):
@@ -93,17 +87,26 @@ def main():
 
     file_path = "marketing_campaign1.xlsx"  # Or make this a file uploader
     data = load_data(file_path)
-    data = feature_engineering(data)
-
+    
+    # Feature Engineering with additional info
+    data, deleted_cols, capped_count = feature_engineering(data)
+    
     # Define features and target
-    clustering_features = ['Income', 'Age', 'Total_Spending', 'Education', 'Marital_Group',
+    used_clustering_features = ['Income', 'Age', 'Total_Spending', 'Education', 'Marital_Group',
                              'Children']
     target = 'Response'
 
     # Train and evaluate the model
-    accuracy, conf_matrix, roc_auc, fpr, tpr, importances, feature_names = train_and_evaluate_rf(data, clustering_features, target)
+    accuracy, conf_matrix, roc_auc, fpr, tpr, importances, feature_names = train_and_evaluate_rf(data, used_clustering_features, target)
 
     st.header("Model Performance")
+
+    # New UI elements
+    st.subheader("Data Insights")
+    st.write(f"Number of values capped from IQR in 'Total_Spending': {capped_count}")
+    st.write(f"Deleted columns: {', '.join(deleted_cols)}")
+    st.write(f"Columns used for model training: {', '.join(used_clustering_features)}")
+
     st.subheader("Accuracy")
     st.metric("Accuracy", f"{accuracy:.2f}")
 
@@ -136,7 +139,32 @@ def main():
     ax_import.set_title("Feature Importance from Random Forest")
 
     st.pyplot(fig_import)
+    
+    st.subheader("Modules used")
+    st.write("Scikit-learn (RandomForestClassifier, train_test_split, metrics)")
+    st.write("Pandas")
+    st.write("Numpy")
+    st.write("Matplotlib")
+    st.write("Seaborn")
 
+# CSS for hover effect (dynamic tile color)
+    st.markdown(
+        """
+        <style>
+        .stMetric {
+            background-color: #f0f2f6;
+            border-radius: 5px;
+            padding: 10px;
+        }
+
+        .stMetric:hover {
+            background-color: #ff0000; /* Red on hover */
+            color: white;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 if __name__ == "__main__":
     main()
