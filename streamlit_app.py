@@ -17,36 +17,65 @@ st.set_page_config(layout="wide")
 # --- Custom CSS for hover effects and styling ---
 st.markdown("""
 <style>
-.graph-container {
-    width: 180px;
-    height: 140px;
-    transition: all 0.3s ease-in-out;
-    overflow: hidden;
-    margin: 10px;
-    border: 1px solid #ddd;
-    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
-}
-.graph-container:hover {
-    width: 400px;
-    height: 300px;
-    z-index: 10;
-}
-.title-highlight {
-    font-size: 14px;
-    font-weight: bold;
-    color: #3b82f6;
-    text-align: center;
-}
-.metric-label {
-    font-weight: bold;
-    color: #16a34a;
-}
-.sidebar-header {
-    font-size: 22px;
-    font-weight: bold;
-    color: #2563eb;
-    margin-bottom: 10px;
-}
+    /* Main graph container styling */
+    .graph-container {
+        position: relative;
+        transition: all 0.3s ease;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin: 10px;
+    }
+    
+    /* Small graphs (ROC and Feature Scaling) */
+    .small-graph {
+        width: 100%;
+        height: 250px;
+    }
+    .small-graph:hover {
+        height: 350px;
+    }
+    
+    /* Clustering graphs */
+    .cluster-graph {
+        width: 100%;
+        height: 200px;
+    }
+    .cluster-graph:hover {
+        height: 300px;
+    }
+    
+    /* Graph content styling */
+    .graph-content {
+        width: 100%;
+        height: 100%;
+        padding: 5px;
+    }
+    
+    /* Title styling */
+    .graph-title {
+        font-size: 14px;
+        font-weight: bold;
+        color: #3b82f6;
+        text-align: center;
+        margin: 5px 0;
+    }
+    
+    /* General styling improvements */
+    .metric-label {
+        font-weight: bold;
+        color: #16a34a;
+    }
+    .sidebar-header {
+        font-size: 22px;
+        font-weight: bold;
+        color: #2563eb;
+        margin-bottom: 10px;
+    }
+    .st-emotion-cache-1v0mbdj {
+        width: 100%;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -59,7 +88,7 @@ def load_data(path):
 def feature_engineering(df):
     df['Age'] = 2025 - df['Year_Birth']
     spending_cols = ['MntWines', 'MntFruits', 'MntMeatProducts',
-                        'MntFishProducts', 'MntSweetProducts', 'MntGoldProds']
+                    'MntFishProducts', 'MntSweetProducts', 'MntGoldProds']
     df['Total_Spending'] = df[spending_cols].sum(axis=1)
     spending_cap = df['Total_Spending'].quantile(0.99)
     capped_count = (df['Total_Spending'] > spending_cap).sum()
@@ -77,7 +106,6 @@ def feature_engineering(df):
     df['Children'] = df['Kidhome'] + df['Teenhome']
     df.drop(['Kidhome', 'Teenhome'], axis=1, inplace=True)
 
-    # Using Marital_Group as relationship filter
     df['Marital_Group'] = df['Marital_Status'].apply(
         lambda x: 'Single' if x in ['Single', 'Divorced', 'Widow', 'Alone', 'YOLO', 'Absurd']
         else 'Family'
@@ -97,7 +125,6 @@ def feature_engineering(df):
     return df, drop_cols, capped_count, out_count
 
 def train_rf(data, features, target='Response'):
-    # One-hot encode and scale data for modeling
     X = pd.get_dummies(data[features], drop_first=True)
     y = data[target]
     scaler = StandardScaler()
@@ -110,7 +137,7 @@ def train_rf(data, features, target='Response'):
     acc = classification_report(y_test, y_pred, output_dict=True)['accuracy']
     roc_auc = roc_auc_score(y_test, y_prob)
     fpr, tpr, thresholds = roc_curve(y_test, y_prob)
-    return acc, roc_auc, fpr, tpr, X_scaled.shape[1] # Return number of features
+    return acc, roc_auc, fpr, tpr, X_scaled.shape[1]
 
 def scale_features(data, features_to_scale):
     scaler = StandardScaler()
@@ -120,87 +147,84 @@ def scale_features(data, features_to_scale):
 
 def plot_scaled_features(scaled_df, features):
     num_features = len(features)
-    fig, axes = plt.subplots(1, num_features, figsize=(4 * num_features, 3)) # Adjusted size
+    fig, axes = plt.subplots(1, num_features, figsize=(3 * num_features, 2))
     if num_features == 1:
-        axes = [axes] # Make sure axes is iterable even for a single plot
+        axes = [axes]
     for i, feature in enumerate(features):
-        sns.histplot(scaled_df[feature], kde=True, ax=axes[i], line_kws={'linewidth': 1}) # Smaller line width
-        axes[i].set_title(f"Scaled {feature}", fontsize=10) # Smaller title
-        axes[i].tick_params(axis='both', which='major', labelsize=8) # Smaller tick labels
-        axes[i].set_xlabel(axes[i].get_xlabel(), fontsize=8) # Smaller x-label
-        axes[i].set_ylabel(axes[i].get_ylabel(), fontsize=8) # Smaller y-label
-    plt.tight_layout(pad=1.5) # Adjust padding
+        sns.histplot(scaled_df[feature], kde=True, ax=axes[i], line_kws={'linewidth': 1})
+        axes[i].set_title(f"Scaled {feature}", fontsize=8)
+        axes[i].tick_params(axis='both', which='major', labelsize=6)
+        axes[i].set_xlabel(axes[i].get_xlabel(), fontsize=6)
+        axes[i].set_ylabel(axes[i].get_ylabel(), fontsize=6)
+    plt.tight_layout(pad=1.0)
     return fig
 
 def plot_roc_curve(fpr, tpr, roc_auc):
-    fig, ax = plt.subplots(figsize=(4, 3)) # Adjusted size
-    ax.plot(fpr, tpr, color='darkorange', lw=1.5, label=f'AUC = {roc_auc:.2f}') # Smaller line width
-    ax.plot([0, 1], [0, 1], color='navy', lw=1.5, linestyle='--') # Smaller line width
+    fig, ax = plt.subplots(figsize=(3, 2))
+    ax.plot(fpr, tpr, color='darkorange', lw=1.5, label=f'AUC = {roc_auc:.2f}')
+    ax.plot([0, 1], [0, 1], color='navy', lw=1.5, linestyle='--')
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.05])
-    ax.set_xlabel('False Positive Rate', fontsize=8) # Smaller labels
-    ax.set_ylabel('True Positive Rate', fontsize=8) # Smaller labels
-    ax.set_title('ROC Curve', fontsize=10) # Smaller title
-    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller tick labels
-    ax.legend(fontsize=8) # Smaller legend
-    ax.grid(True, linestyle='--', alpha=0.5) # Add a subtle grid
+    ax.set_xlabel('False Positive Rate', fontsize=6)
+    ax.set_ylabel('True Positive Rate', fontsize=6)
+    ax.set_title('ROC Curve', fontsize=8)
+    ax.tick_params(axis='both', which='major', labelsize=6)
+    ax.legend(fontsize=6)
+    ax.grid(True, linestyle='--', alpha=0.5)
     plt.tight_layout()
     return fig
 
 def clustering_graphs(data):
-    # Use the clustering features and run PCA for visualization
     cluster_features = ['Income', 'Age', 'Total_Spending']
     X = StandardScaler().fit_transform(data[cluster_features])
     X_pca = PCA(n_components=2).fit_transform(X)
     data['PCA1'], data['PCA2'] = X_pca[:, 0], X_pca[:, 1]
     figs = {}
 
-    # --- KMeans (k=2) ---
+    # KMeans
     data['Cluster'] = KMeans(n_clusters=2, random_state=42, n_init=10).fit_predict(X)
-    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='viridis', ax=ax, s=20) # Smaller points
-    ax.set_title("KMeans (k=2)", fontsize=10) # Smaller title
-    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller ticks
-    ax.set_xlabel("PCA1", fontsize=8) # Smaller labels
-    ax.set_ylabel("PCA2", fontsize=8) # Smaller labels
-    ax.legend(fontsize=8) # Smaller legend
+    fig, ax = plt.subplots(figsize=(3, 2))
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='viridis', ax=ax, s=15)
+    ax.set_title("KMeans (k=2)", fontsize=8)
+    ax.tick_params(axis='both', which='major', labelsize=6)
+    ax.set_xlabel("PCA1", fontsize=6)
+    ax.set_ylabel("PCA2", fontsize=6)
+    ax.legend(fontsize=6)
     figs['KMeans'] = fig
 
-    # --- Agglomerative Clustering (k=2) ---
+    # Agglomerative Clustering
     data['Cluster'] = AgglomerativeClustering(n_clusters=2).fit_predict(X)
-    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='plasma', ax=ax, s=20) # Smaller points
-    ax.set_title("Agglomerative (k=2)", fontsize=10) # Smaller title
-    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller ticks
-    ax.set_xlabel("PCA1", fontsize=8) # Smaller labels
-    ax.set_ylabel("PCA2", fontsize=8) # Smaller labels
-    ax.legend(fontsize=8) # Smaller legend
+    fig, ax = plt.subplots(figsize=(3, 2))
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='plasma', ax=ax, s=15)
+    ax.set_title("Agglomerative (k=2)", fontsize=8)
+    ax.tick_params(axis='both', which='major', labelsize=6)
+    ax.set_xlabel("PCA1", fontsize=6)
+    ax.set_ylabel("PCA2", fontsize=6)
+    ax.legend(fontsize=6)
     figs['Agglomerative'] = fig
 
-    # --- DBSCAN ---
+    # DBSCAN
     data['Cluster'] = DBSCAN(eps=1.2, min_samples=5).fit_predict(X)
-    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='cubehelix', ax=ax, s=20) # Smaller points
-    ax.set_title("DBSCAN", fontsize=10) # Smaller title
-    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller ticks
-    ax.set_xlabel("PCA1", fontsize=8) # Smaller labels
-    ax.set_ylabel("PCA2", fontsize=8) # Smaller labels
-    ax.legend(fontsize=8) # Smaller legend
+    fig, ax = plt.subplots(figsize=(3, 2))
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='cubehelix', ax=ax, s=15)
+    ax.set_title("DBSCAN", fontsize=8)
+    ax.tick_params(axis='both', which='major', labelsize=6)
+    ax.set_xlabel("PCA1", fontsize=6)
+    ax.set_ylabel("PCA2", fontsize=6)
+    ax.legend(fontsize=6)
     figs['DBSCAN'] = fig
 
-    # --- Gaussian Mixture Model (k=2) ---
+    # GMM
     data['Cluster'] = GaussianMixture(n_components=2, random_state=42).fit_predict(X)
-    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='coolwarm', ax=ax, s=20) # Smaller points
-    ax.set_title("GMM (k=2)", fontsize=10) # Smaller title
-    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller ticks
-    ax.set_xlabel("PCA1", fontsize=8) # Smaller labels
-    ax.set_ylabel("PCA2", fontsize=8) # Smaller labels
-    ax.legend(fontsize=8) # Smaller legend
-
+    fig, ax = plt.subplots(figsize=(3, 2))
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='coolwarm', ax=ax, s=15)
+    ax.set_title("GMM (k=2)", fontsize=8)
+    ax.tick_params(axis='both', which='major', labelsize=6)
+    ax.set_xlabel("PCA1", fontsize=6)
+    ax.set_ylabel("PCA2", fontsize=6)
+    ax.legend(fontsize=6)
     figs['GMM'] = fig
 
-    # Clean up temporary column
     data.drop('Cluster', axis=1, inplace=True)
     return figs
 
@@ -213,13 +237,10 @@ def main():
 
     # --- Sidebar Filter Options ---
     st.sidebar.markdown("<div class='sidebar-header'>Filter Options</div>", unsafe_allow_html=True)
-
     rel_options = list(df["Marital_Group"].unique())
     edu_options = list(df["Education"].unique())
-
     selected_rel = st.sidebar.multiselect("Select Relationship (Marital Group)", options=rel_options, default=rel_options)
     selected_edu = st.sidebar.multiselect("Select Education Level", options=edu_options, default=edu_options)
-
     min_income = int(df["Income"].min())
     max_income = int(df["Income"].max())
     selected_income = st.sidebar.slider("Income Range", min_value=min_income, max_value=max_income, value=(min_income, max_income))
@@ -232,17 +253,17 @@ def main():
         (df["Income"] <= selected_income[1])
     ]
 
-    # --- Compute main model accuracy and ROC curve using filtered data ---
+    # --- Compute main model metrics ---
     used_features = ['Income', 'Age', 'Total_Spending', 'Education', 'Marital_Group', 'Children']
     accuracy, roc_auc, fpr, tpr, n_features = train_rf(filtered_df, used_features)
 
-    # --- Scale features for visualization ---
+    # --- Scale features and create plots ---
     features_to_scale = ['Income', 'Age', 'Total_Spending']
     scaled_df = scale_features(filtered_df.copy(), features_to_scale)
     scaled_features_fig = plot_scaled_features(scaled_df, features_to_scale)
     roc_fig = plot_roc_curve(fpr, tpr, roc_auc)
 
-    # --- Clustering visualizations based on filtered data ---
+    # --- Clustering visualizations ---
     cluster_figs = clustering_graphs(filtered_df.copy())
 
     # --- Display Insights and Performance ---
@@ -262,34 +283,37 @@ def main():
 
     st.divider()
 
-    # --- Display Smaller ROC Curve and Feature Scaling Side-by-Side ---
+    # --- Display ROC Curve and Feature Scaling Side-by-Side ---
     st.header("📉 Model Evaluation & Feature Scaling")
-    cols_top = st.columns(2)
-    with cols_top[0]:
-        st.subheader("📈 ROC Curve")
-        st.markdown("<div class='graph-container'>", unsafe_allow_html=True)
+    col_roc, col_scaling = st.columns(2)
+    
+    with col_roc:
+        st.markdown("<div class='graph-title'>📈 ROC Curve</div>", unsafe_allow_html=True)
+        st.markdown("<div class='graph-container small-graph'><div class='graph-content'>", unsafe_allow_html=True)
         st.pyplot(roc_fig)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with cols_top[1]:
-        st.subheader("📊 Feature Scaling")
-        st.markdown("<div class='graph-container'>", unsafe_allow_html=True)
+        st.markdown("</div></div>", unsafe_allow_html=True)
+    
+    with col_scaling:
+        st.markdown("<div class='graph-title'>📊 Feature Scaling</div>", unsafe_allow_html=True)
+        st.markdown("<div class='graph-container small-graph'><div class='graph-content'>", unsafe_allow_html=True)
         st.pyplot(scaled_features_fig)
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div></div>", unsafe_allow_html=True)
 
     st.divider()
 
-    # --- Display Model Highlights (Clustering Graphs) ---
+    # --- Display Clustering Graphs ---
     st.header("🌀 Clustering Model Highlights")
     st.markdown("Hover over each graph to expand 👇")
-    cols_clustering = st.columns(4)
+    
+    cols = st.columns(4)
     model_names = list(cluster_figs.keys())
-    for i, name in enumerate(model_names):
-        with cols_clustering[i]:
-            st.markdown(f"<div class='title-highlight'>{name}</div>", unsafe_allow_html=True)
-            st.markdown("<div class='graph-container'>", unsafe_allow_html=True)
-            st.pyplot(cluster_figs[name])
-            st.markdown("</div>", unsafe_allow_html=True)
+    
+    for i, (name, fig) in enumerate(zip(model_names, cluster_figs.values())):
+        with cols[i]:
+            st.markdown(f"<div class='graph-title'>{name}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='graph-container cluster-graph'><div class='graph-content'>", unsafe_allow_html=True)
+            st.pyplot(fig)
+            st.markdown("</div></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
