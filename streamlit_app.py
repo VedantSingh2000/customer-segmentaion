@@ -7,7 +7,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
 from sklearn.preprocessing import StandardScaler
-from sklearn.inspection import permutation_importance  # For feature importance
+from sklearn.inspection import permutation_importance
+import graphviz  # For creating flowcharts
 
 
 @st.cache_data
@@ -42,7 +43,7 @@ def feature_engineering(data):
     lower_bound = Q1 - 1.5 * IQR
     upper_bound = Q3 + 1.5 * IQR
     income_outliers_count = len(data[(data['Income'] < lower_bound) | (data['Income'] > upper_bound)])
-    
+
     data['Income'] = np.clip(data['Income'], lower_bound, upper_bound)
     data['Children'] = data['Kidhome'] + data['Teenhome']
     data.drop(['Kidhome', 'Teenhome'], axis=1, inplace=True)
@@ -62,39 +63,42 @@ def feature_engineering(data):
 
     deleted_cols = ['ID', 'Year_Birth', 'Dt_Customer', 'Z_CostContact', 'Z_Revenue']
     data.drop(deleted_cols, axis=1, inplace=True)
-    
+
     return data, deleted_cols, capped_count, income_outliers_count
+
 
 def create_eda_plots(data):
     """Generates EDA plots for the data."""
     eda_plots = {}
+    fig_size = (6, 4)  # Standardize figure size
 
     # 1. Distribution of Total Spending
-    fig_spending, ax_spending = plt.subplots()
+    fig_spending, ax_spending = plt.subplots(figsize=fig_size)
     sns.histplot(data['Total_Spending'], kde=True, ax=ax_spending)
     ax_spending.set_title('Distribution of Total Spending')
     eda_plots['Total Spending Distribution'] = fig_spending
 
     # 2. Distribution of Age
-    fig_age, ax_age = plt.subplots()
+    fig_age, ax_age = plt.subplots(figsize=fig_size)
     sns.histplot(data['Age'], kde=True, ax=ax_age)
     ax_age.set_title('Distribution of Age')
     eda_plots['Age Distribution'] = fig_age
 
     # 3. Count plot of Marital Groups
-    fig_marital, ax_marital = plt.subplots()
+    fig_marital, ax_marital = plt.subplots(figsize=fig_size)
     sns.countplot(x='Marital_Group', data=data, ax=ax_marital)
     ax_marital.set_title('Count of Marital Groups')
     eda_plots['Marital Group Counts'] = fig_marital
 
     # 4. Boxplot of Income by Education Level
-    fig_income_edu, ax_income_edu = plt.subplots()
+    fig_income_edu, ax_income_edu = plt.subplots(figsize=fig_size)
     sns.boxplot(x='Education', y='Income', data=data, ax=ax_income_edu)
     ax_income_edu.set_title('Income by Education Level')
     plt.xticks(rotation=45)  # Rotate x-axis labels for readability
     eda_plots['Income by Education'] = fig_income_edu
 
     return eda_plots
+
 
 def train_and_evaluate_rf(data, features, target):
     """Trains and evaluates a Random Forest model."""
@@ -125,14 +129,13 @@ def train_and_evaluate_rf(data, features, target):
     importances = r_multi.importances_mean
     feature_names = list(pd.get_dummies(data[features], columns=data[features].select_dtypes(include='object').columns).columns)
 
-
     return accuracy, conf_matrix, roc_auc, fpr, tpr, importances, feature_names
 
 
 def main():
     st.set_page_config(layout="wide")  # Use the full page width
 
-    st.title("Marketing Campaign Analysis with Random Forest")
+    st.title("Customer Segmentation and Response Prediction")
 
     file_path = "marketing_campaign1.xlsx"  # Or make this a file uploader
     data = load_data(file_path)
@@ -153,7 +156,7 @@ def main():
 
     # --- Column 1: Data Insights and Performance Metrics ---
     with col1:
-        st.header("Data Insights & Model Performance")
+        st.header("Insights and Model Performance")
 
         st.subheader("Data Overview")
         st.write(f"Number of values capped from Total Spending: **{capped_count}**")
@@ -164,19 +167,16 @@ def main():
         st.subheader("Model Accuracy")
         st.metric(label="Accuracy", value=f"{accuracy:.2f}")
 
-        st.subheader("Modules Used")
-        st.write("Scikit-learn (RandomForestClassifier, train_test_split, metrics)")
-        st.write("Pandas")
-        st.write("Numpy")
-        st.write("Matplotlib")
-        st.write("Seaborn")
+        st.subheader("Machine Learning Models Used")
+        st.write("Random Forest Classifier")
 
     # --- Column 2: Visualizations ---
     with col2:
         st.header("Model Visualizations")
-
+        fig_size = (8, 6)  # Standardize plot size
+        
         st.subheader("Confusion Matrix")
-        fig_conf, ax_conf = plt.subplots()
+        fig_conf, ax_conf = plt.subplots(figsize=fig_size)
         sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', ax=ax_conf)
         ax_conf.set_xlabel('Predicted Labels')
         ax_conf.set_ylabel('True Labels')
@@ -184,7 +184,7 @@ def main():
         st.pyplot(fig_conf)
 
         st.subheader("ROC Curve")
-        fig_roc, ax_roc = plt.subplots()
+        fig_roc, ax_roc = plt.subplots(figsize=fig_size)
         ax_roc.plot(fpr, tpr, label=f'ROC AUC = {roc_auc:.2f}')
         ax_roc.plot([0, 1], [0, 1], 'k--')
         ax_roc.set_xlabel('False Positive Rate')
@@ -194,7 +194,7 @@ def main():
         st.pyplot(fig_roc)
 
         st.subheader("Feature Importance")
-        fig_import, ax_import = plt.subplots(figsize=(10, 6))  # Adjust figure size as needed
+        fig_import, ax_import = plt.subplots(figsize=fig_size)
         indices = np.argsort(importances)[::-1]
 
         sns.barplot(x=importances[indices], y=[feature_names[i] for i in indices],
@@ -204,11 +204,21 @@ def main():
         ax_import.set_title("Feature Importance from Random Forest")
 
         st.pyplot(fig_import)
-    with st.expander("Explore other graphs"):
+    # --- EDA Plots ---
+    with st.expander("Explore Additional Data Analysis Graphs"):
         eda_plots = create_eda_plots(data)
         for title, fig in eda_plots.items():
             st.subheader(title)
             st.pyplot(fig)
+    # --- Module Flowchart ---
+    st.subheader("Module Flowchart")
+    graph = graphviz.Digraph(comment='Module Flowchart')
+    graph.node('A', 'Load Data')
+    graph.node('B', 'Feature Engineering')
+    graph.node('C', 'Train/Evaluate RF')
+    graph.edge('A', 'B', label='Data')
+    graph.edge('B', 'C', label='Engineered Features')
+    st.graphviz_chart(graph)
 
     # CSS for hover effect (dynamic tile color)
     st.markdown(
