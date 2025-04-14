@@ -5,13 +5,32 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve, silhouette_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
 import graphviz  # For creating flowcharts
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.mixture import GaussianMixture
+import scipy.cluster.hierarchy as sch
 
+# --- CSS for Hover Effect ---
+st.markdown(
+    """
+<style>
+.small-graph {
+    width: 200px; /* Initial width */
+    height: 150px;
+    transition: width 0.3s, height 0.3s; /* Smooth transition */
+}
+
+.small-graph:hover {
+    width: 400px; /* Increased width on hover */
+    height: 300px;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 @st.cache_data
 def load_data(file_path):
@@ -68,38 +87,6 @@ def feature_engineering(data):
 
     return data, deleted_cols, capped_count, income_outliers_count
 
-def create_eda_plots(data):
-    """Generates EDA plots for the data."""
-    eda_plots = {}
-    fig_size = (4, 3)  # Small standardized figure size
-
-    # 1. Distribution of Total Spending
-    fig_spending, ax_spending = plt.subplots(figsize=fig_size)
-    sns.histplot(data['Total_Spending'], kde=True, ax=ax_spending)
-    ax_spending.set_title('Total Spending Dist.')
-    eda_plots['Total Spending Distribution'] = fig_spending
-
-    # 2. Distribution of Age
-    fig_age, ax_age = plt.subplots(figsize=fig_size)
-    sns.histplot(data['Age'], kde=True, ax=ax_age)
-    ax_age.set_title('Age Distribution')
-    eda_plots['Age Distribution'] = fig_age
-
-    # 3. Count plot of Marital Groups
-    fig_marital, ax_marital = plt.subplots(figsize=fig_size)
-    sns.countplot(x='Marital_Group', data=data, ax=ax_marital)
-    ax_marital.set_title('Marital Group Counts')
-    eda_plots['Marital Group Counts'] = fig_marital
-
-    # 4. Boxplot of Income by Education Level
-    fig_income_edu, ax_income_edu = plt.subplots(figsize=fig_size)
-    sns.boxplot(x='Education', y='Income', data=data, ax=ax_income_edu)
-    ax_income_edu.set_title('Income by Education')
-    plt.xticks(rotation=45)  # Rotate x-axis labels for readability
-    eda_plots['Income by Education'] = fig_income_edu
-
-    return eda_plots
-
 
 def train_and_evaluate_rf(data, features, target):
     """Trains and evaluates a Random Forest model."""
@@ -132,56 +119,61 @@ def train_and_evaluate_rf(data, features, target):
 
     return accuracy, conf_matrix, roc_auc, fpr, tpr, importances, feature_names
 
-
-def run_clustering(data):
-    """Runs clustering algorithms and returns the model names."""
+def run_clustering_and_visualize(data):
+    """Runs clustering algorithms and generates example plots."""
     clustering_features = ['Income', 'Age', 'Total_Spending']
     X_orig = data[clustering_features]
     scaler = StandardScaler()
     X = scaler.fit_transform(X_orig)
 
-    # Run K-Means
+    # PCA for visualization
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X)
+    data['PCA1'] = X_pca[:, 0]
+    data['PCA2'] = X_pca[:, 1]
+
+    cluster_plots = {}
+
+    # 1. K-Means Scatter Plot
     kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
-    kmeans.fit(X)
+    data['KMeans_Cluster'] = kmeans.fit_predict(X)  # Add cluster labels to data
+    fig_kmeans, ax_kmeans = plt.subplots(figsize=(4, 3))
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='KMeans_Cluster', palette='viridis', ax=ax_kmeans)
+    ax_kmeans.set_title('K-Means (k=3)')
+    cluster_plots['KMeans'] = fig_kmeans
+    data.drop('KMeans_Cluster', axis=1, inplace=True)  # Remove temp column
 
-    # Run Agglomerative Clustering
-    agglo = AgglomerativeClustering(n_clusters=3)
+    # 2. Agglomerative Clustering Dendrogram
+    agglo = AgglomerativeClustering(n_clusters=2)
     agglo.fit_predict(X)
+    fig_dendro, ax_dendro = plt.subplots(figsize=(4, 3))
+    dendrogram = sch.dendrogram(sch.linkage(X, method='ward'), ax=ax_dendro, no_labels=True)  # Suppress labels
+    ax_dendro.set_title('Agglo. Dendrogram (k=2)')
+    cluster_plots['Agglomerative'] = fig_dendro
 
-    # Run DBSCAN
-    dbscan = DBSCAN(eps=0.8, min_samples=5)
-    dbscan.fit_predict(X)
+    # 3. GMM Scatter Plot
+    gmm = GaussianMixture(n_components=2, random_state=42)
+    data['GMM_Cluster'] = gmm.fit_predict(X)  # Add cluster labels to data
+    fig_gmm, ax_gmm = plt.subplots(figsize=(4, 3))
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='GMM_Cluster', palette='viridis', ax=ax_gmm)
+    ax_gmm.set_title('GMM (k=2)')
+    cluster_plots['GMM'] = fig_gmm
+    data.drop('GMM_Cluster', axis=1, inplace=True)  # Remove temp column
 
-    # Run Gaussian Mixture Model
-    gmm = GaussianMixture(n_components=3, random_state=42)
-    gmm.fit(X)
-
-    models_used = ["K-Means Clustering", "Agglomerative Clustering", "DBSCAN",
-                   "Gaussian Mixture Model"]
-    return models_used
-
+    return cluster_plots
 
 def main():
     st.set_page_config(layout="wide")
-
     st.title("Customer Segmentation and Response Prediction")
 
     file_path = "marketing_campaign1.xlsx"
     data = load_data(file_path)
-
-    # Feature Engineering
     data, deleted_cols, capped_count, income_outliers_count = feature_engineering(data)
-
-    # Define features and target
     used_clustering_features = ['Income', 'Age', 'Total_Spending', 'Education', 'Marital_Group',
                              'Children']
     target = 'Response'
-
-    # Train and evaluate the model
     accuracy, conf_matrix, roc_auc, fpr, tpr, importances, feature_names = train_and_evaluate_rf(data, used_clustering_features, target)
-
-    # Run Clustering
-    models_used = run_clustering(data)
+    cluster_plots = run_clustering_and_visualize(data)
 
     # --- Layout with Columns ---
     col1, col2 = st.columns(2)
@@ -200,11 +192,14 @@ def main():
         st.write(f"**Accuracy: {accuracy:.2f}**")  # Always visible accuracy
 
         st.subheader("Machine Learning Models Used")
-        st.write(f"{', '.join(models_used)}")  # Display list of models
+        st.write("K-Means Clustering, Agglomerative Clustering, DBSCAN, Gaussian Mixture Model, Random Forest Classifier")
 
     # --- Column 2: Visualizations ---
     with col2:
         st.header("Model Visualizations")
+
+        # Random Forest Metrics and Plots
+        st.subheader("Random Forest Classifier")
 
         fig_size = (6, 4)
 
@@ -238,12 +233,13 @@ def main():
 
         st.pyplot(fig_import)
 
-        # --- EDA Plots ---
-    with st.expander("Explore Additional Data Analysis Graphs"):
-        eda_plots = create_eda_plots(data)
-        for title, fig in eda_plots.items():
-            st.subheader(title)
-            st.pyplot(fig)
+         # Display cluster plots with hover effect
+        st.subheader("Clustering Visualizations")
+        col_layout = st.columns(len(cluster_plots))
+        for i, (name, fig) in enumerate(cluster_plots.items()):
+            with col_layout[i]:
+                st.pyplot(fig, use_container_width=False, output_format='auto',
+                         figure_class='small-graph')
     # --- Module Flowchart ---
     st.subheader("Module Flowchart")
     graph = graphviz.Digraph(comment='Module Flowchart')
@@ -253,24 +249,6 @@ def main():
     graph.edge('A', 'B', label='Data')
     graph.edge('B', 'C', label='Engineered Features')
     st.graphviz_chart(graph)
-    # CSS for hover effect (dynamic tile color)
-    st.markdown(
-        """
-        <style>
-        .stMetric {
-            background-color: #f0f2f6;
-            border-radius: 5px;
-            padding: 10px;
-        }
-
-        .stMetric:hover {
-            background-color: #ff0000; /* Red on hover */
-            color: white;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
 if __name__ == "__main__":
     main()
