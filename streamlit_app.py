@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, roc_curve, auc
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.mixture import GaussianMixture
@@ -18,18 +18,20 @@ st.set_page_config(layout="wide")
 st.markdown("""
 <style>
 .graph-container {
-    width: 180px;
-    height: 140px;
+    width: 200px;
+    height: 150px;
     transition: all 0.3s ease-in-out;
     overflow: hidden;
     margin: 10px;
     border: 1px solid #ddd;
     box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+    position: relative;
 }
 .graph-container:hover {
     width: 400px;
     height: 300px;
     z-index: 10;
+    border: 2px solid #3b82f6;
 }
 .title-highlight {
     font-size: 20px;
@@ -107,7 +109,12 @@ def train_rf(data, features, target='Response'):
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
     acc = classification_report(y_test, y_pred, output_dict=True)['accuracy']
-    return acc
+    
+    # ROC curve and feature importance
+    fpr, tpr, _ = roc_curve(y_test, model.predict_proba(X_test)[:,1])
+    roc_auc = auc(fpr, tpr)
+    feature_importances = model.feature_importances_
+    return acc, fpr, tpr, roc_auc, feature_importances
 
 def clustering_graphs(data):
     # Use the clustering features and run PCA for visualization
@@ -179,7 +186,7 @@ def main():
     
     # --- Compute main model accuracy using filtered data ---
     used_features = ['Income', 'Age', 'Total_Spending', 'Education', 'Marital_Group', 'Children']
-    accuracy = train_rf(filtered_df, used_features)
+    accuracy, fpr, tpr, roc_auc, feature_importances = train_rf(filtered_df, used_features)
     
     # --- Clustering visualizations based on filtered data ---
     cluster_figs = clustering_graphs(filtered_df)
@@ -199,7 +206,27 @@ def main():
             st.metric(label="Model Accuracy", value=f"{accuracy:.2%}")
     
     st.divider()
-    
+
+    # --- Display ROC curve ---
+    st.header("🔍 Random Forest ROC Curve")
+    fig_roc, ax_roc = plt.subplots()
+    ax_roc.plot(fpr, tpr, color='blue', lw=2)
+    ax_roc.plot([0, 1], [0, 1], color='gray', lw=2, linestyle='--')
+    ax_roc.set_xlabel('False Positive Rate')
+    ax_roc.set_ylabel('True Positive Rate')
+    ax_roc.set_title(f'ROC Curve (AUC = {roc_auc:.2f})')
+    st.pyplot(fig_roc)
+
+    # --- Display Feature Importance ---
+    st.header("🔍 Random Forest Feature Importance")
+    feature_importance_fig, ax_fi = plt.subplots()
+    ax_fi.barh(range(len(feature_importances)), feature_importances)
+    ax_fi.set_yticks(range(len(feature_importances)))
+    ax_fi.set_yticklabels(pd.get_dummies(filtered_df[used_features], drop_first=True).columns)
+    ax_fi.set_xlabel('Feature Importance')
+    ax_fi.set_title('Feature Importance (Random Forest)')
+    st.pyplot(feature_importance_fig)
+
     # --- Display Model Highlights (Clustering Graphs) ---
     st.header("🌀 Clustering Model Highlights")
     st.markdown("Hover over each graph to expand 👇")
