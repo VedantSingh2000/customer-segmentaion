@@ -11,15 +11,12 @@ from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.mixture import GaussianMixture
 from sklearn.decomposition import PCA
 
-# --- Page config ---
+# --- Set page configuration ---
 st.set_page_config(layout="wide")
 
 # --- CSS Styling ---
 st.markdown("""
 <style>
-    .stPlot {
-        width: 100% !important;
-    }
     .cluster-container {
         border: 1px solid #e0e0e0;
         border-radius: 8px;
@@ -29,65 +26,71 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Dummy function: Load data ---
-def load_data(path):
-    return pd.read_excel(path)
+# --- Data loading and feature engineering ---
+def load_data(filepath):
+    df = pd.read_excel(filepath)
+    return df
 
-# --- Feature engineering function ---
 def feature_engineering(df):
+    dropped_cols = []
+
+    # Create Total_Spending first
+    df['Total_Spending'] = df[['MntWines', 'MntFruits', 'MntMeatProducts',
+                               'MntFishProducts', 'MntSweetProducts', 'MntGoldProds']].sum(axis=1)
+
+    # Cap Total_Spending
     cap_count = (df['Total_Spending'] > 3000).sum()
     df['Total_Spending'] = np.where(df['Total_Spending'] > 3000, 3000, df['Total_Spending'])
 
-    q1 = df['Income'].quantile(0.25)
-    q3 = df['Income'].quantile(0.75)
-    iqr = q3 - q1
-    outliers = df[(df['Income'] < (q1 - 1.5 * iqr)) | (df['Income'] > (q3 + 1.5 * iqr))]
-    out_count = outliers.shape[0]
-    df = df.drop(outliers.index)
+    # Remove income outliers
+    out_count = ((df['Income'] > 600000)).sum()
+    df = df[df['Income'] <= 600000]
 
-    dropped_cols = ['ID', 'Z_CostContact', 'Z_Revenue']
-    for col in dropped_cols:
-        if col in df.columns:
-            df.drop(columns=col, inplace=True)
-
+    # Age
     df['Age'] = 2024 - df['Year_Birth']
-    df.drop(columns=['Year_Birth'], inplace=True)
-
-    df['Total_Spending'] = df[['MntWines', 'MntFruits', 'MntMeatProducts', 'MntFishProducts', 'MntSweetProducts', 'MntGoldProds']].sum(axis=1)
-
+    dropped_cols.append('Year_Birth')
+    
+    # Marital Group
     df['Marital_Group'] = df['Marital_Status'].replace({
         'Married': 'Partnered', 'Together': 'Partnered',
-        'Single': 'Single', 'Divorced': 'Single', 'Widow': 'Single', 'Alone': 'Single'
+        'Single': 'Single', 'Divorced': 'Single', 'Widow': 'Single', 'Alone': 'Single', 'Absurd': 'Single', 'YOLO': 'Single'
     })
+    dropped_cols.append('Marital_Status')
 
+    df.drop(columns=dropped_cols, inplace=True)
     return df, dropped_cols, cap_count, out_count
 
-# --- Feature scaling ---
 def scale_features(df, features):
     scaler = StandardScaler()
     df[features] = scaler.fit_transform(df[features])
     return df
 
-# --- Train Random Forest ---
 def train_rf(df, features):
     df = df.dropna()
-    df_encoded = pd.get_dummies(df[features + ['Response']], drop_first=True)
-    X = df_encoded.drop(columns='Response')
-    y = df_encoded['Response']
-
+    X = pd.get_dummies(df[features], drop_first=True)
+    y = (df['Response'] > 0).astype(int)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = RandomForestClassifier(random_state=42)
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
+    clf = RandomForestClassifier(random_state=42)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+    y_proba = clf.predict_proba(X_test)[:, 1]
+    accuracy = clf.score(X_test, y_test)
+    roc_auc = roc_auc_score(y_test, y_proba)
+    fpr, tpr, _ = roc_curve(y_test, y_proba)
+    return accuracy, roc_auc, fpr, tpr, X.columns
 
-    accuracy = model.score(X_test, y_test)
-    roc_auc = roc_auc_score(y_test, model.predict_proba(X_test)[:, 1])
-    fpr, tpr, _ = roc_curve(y_test, model.predict_proba(X_test)[:, 1])
+def plot_scaled_features(scaled_df, features):
+    num_features = len(features)
+    fig, axes = plt.subplots(1, num_features, figsize=(8, 3))
+    if num_features == 1:
+        axes = [axes]
+    for i, feature in enumerate(features):
+        sns.histplot(scaled_df[feature], kde=True, ax=axes[i], line_kws={'linewidth': 1})
+        axes[i].set_title(f"Scaled {feature}", fontsize=10)
+        axes[i].tick_params(axis='both', which='major', labelsize=8)
+    plt.tight_layout()
+    return fig
 
-    importance = list(zip(X.columns, model.feature_importances_))
-    return accuracy, roc_auc, fpr, tpr, importance
-
-# --- ROC Plot ---
 def plot_roc_curve(fpr, tpr, roc_auc):
     fig, ax = plt.subplots(figsize=(4, 3))
     ax.plot(fpr, tpr, color='darkorange', lw=2, label=f'AUC = {roc_auc:.2f}')
@@ -101,19 +104,6 @@ def plot_roc_curve(fpr, tpr, roc_auc):
     plt.tight_layout()
     return fig
 
-# --- Feature Importance Plot ---
-def plot_feature_importance(importances):
-    fig, ax = plt.subplots(figsize=(4, 3))
-    importances.sort(key=lambda x: x[1], reverse=True)
-    labels, scores = zip(*importances)
-    ax.barh(labels, scores, color='skyblue')
-    ax.set_title("Feature Importance", fontsize=10)
-    ax.set_xlabel("Importance", fontsize=9)
-    ax.tick_params(labelsize=8)
-    plt.tight_layout()
-    return fig
-
-# --- Clustering Plots ---
 def clustering_graphs(data):
     cluster_features = ['Income', 'Age', 'Total_Spending']
     X = StandardScaler().fit_transform(data[cluster_features])
@@ -132,28 +122,26 @@ def clustering_graphs(data):
     # Agglomerative
     data['Cluster'] = AgglomerativeClustering(n_clusters=2).fit_predict(X)
     fig, ax = plt.subplots(figsize=cluster_figsize)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='plasma', ax=ax, s=30)
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='coolwarm', ax=ax, s=30)
     ax.set_title("Agglomerative (k=2)", fontsize=10)
     figs['Agglomerative'] = fig
 
     # GMM
     data['Cluster'] = GaussianMixture(n_components=2, random_state=42).fit_predict(X)
     fig, ax = plt.subplots(figsize=cluster_figsize)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='cool', ax=ax, s=30)
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='Set2', ax=ax, s=30)
     ax.set_title("GMM (k=2)", fontsize=10)
     figs['GMM'] = fig
 
     data.drop('Cluster', axis=1, inplace=True)
     return figs
 
-# --- Main ---
 def main():
     st.title("🧠 Customer Segmentation Dashboard")
 
     df = load_data("marketing_campaign1.xlsx")
     df, dropped_cols, cap_count, out_count = feature_engineering(df)
 
-    # --- Sidebar Filters ---
     st.sidebar.markdown("### Filter Options")
     rel_options = list(df["Marital_Group"].unique())
     edu_options = list(df["Education"].unique())
@@ -163,7 +151,6 @@ def main():
     max_income = int(df["Income"].max())
     selected_income = st.sidebar.slider("Income Range", min_value=min_income, max_value=max_income, value=(min_income, max_income))
 
-    # Apply filters
     filtered_df = df[
         (df["Marital_Group"].isin(selected_rel)) &
         (df["Education"].isin(selected_edu)) &
@@ -171,17 +158,15 @@ def main():
         (df["Income"] <= selected_income[1])
     ]
 
-    # Model training
     used_features = ['Income', 'Age', 'Total_Spending', 'Education', 'Marital_Group', 'Children']
-    accuracy, roc_auc, fpr, tpr, feature_importances = train_rf(filtered_df, used_features)
+    accuracy, roc_auc, fpr, tpr, n_features = train_rf(filtered_df, used_features)
 
-    # Create visuals
-    scaled_df = scale_features(filtered_df.copy(), ['Income', 'Age', 'Total_Spending'])
-    cluster_figs = clustering_graphs(filtered_df.copy())
+    features_to_scale = ['Income', 'Age', 'Total_Spending']
+    scaled_df = scale_features(filtered_df.copy(), features_to_scale)
+    scaled_features_fig = plot_scaled_features(scaled_df, features_to_scale)
     roc_fig = plot_roc_curve(fpr, tpr, roc_auc)
-    feature_fig = plot_feature_importance(feature_importances)
+    cluster_figs = clustering_graphs(filtered_df.copy())
 
-    # --- Insights section ---
     st.header("📊 Insights and Model Performance")
     col1, col2 = st.columns(2)
     with col1:
@@ -195,23 +180,23 @@ def main():
         st.metric("ROC AUC Score", f"{roc_auc:.2f}")
 
     st.divider()
+    st.header("📈 Additional Graphs")
 
-    st.header("📈 Model Visuals")
+    if st.button("Show ROC Curve"):
+        st.pyplot(roc_fig)
 
-    if st.button("📈 Show ROC Curve"):
-        st.pyplot(roc_fig, use_container_width=True)
-
-    if st.button("📊 Show Feature Importance"):
-        st.pyplot(feature_fig, use_container_width=True)
+    if st.button("Show Feature Scaling Graphs"):
+        st.pyplot(scaled_features_fig)
 
     st.divider()
-
-    st.header("🌀 Clustering Results")
+    st.header("🌀 Clustering Results (k=2)")
     cols = st.columns(3)
-    for i, (name, fig) in enumerate(cluster_figs.items()):
+    for i, name in enumerate(['KMeans', 'Agglomerative', 'GMM']):
         with cols[i]:
+            st.markdown(f"<div class='cluster-container'>", unsafe_allow_html=True)
             st.markdown(f"**{name}**")
-            st.pyplot(fig)
+            st.pyplot(cluster_figs[name])
+            st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
