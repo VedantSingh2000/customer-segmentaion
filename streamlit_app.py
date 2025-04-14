@@ -13,6 +13,9 @@ from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.mixture import GaussianMixture
 import scipy.cluster.hierarchy as sch
 
+# --- Set Page Config MUST be first Streamlit command ---
+st.set_page_config(layout="wide")
+
 # --- CSS for Hover Effect ---
 st.markdown(
     """
@@ -163,7 +166,6 @@ def run_clustering_and_visualize(data):
     return cluster_plots
 
 def main():
-    st.set_page_config(layout="wide")
     st.title("Customer Segmentation and Response Prediction")
 
     file_path = "marketing_campaign1.xlsx"
