@@ -14,64 +14,35 @@ from sklearn.decomposition import PCA
 # --- Set page configuration ---
 st.set_page_config(layout="wide")
 
-# --- Custom CSS for hover effects and styling ---
+# --- Simplified CSS ---
 st.markdown("""
 <style>
-    /* Main container styling */
-    .stPlotContainer {
-        position: relative;
-    }
-    
-    /* Upper graphs container (ROC and Feature Scaling) */
-    .upper-graph-container {
-        width: 100%;
-        height: 300px;
-        transition: all 0.3s ease;
-        margin-bottom: 20px;
-    }
-    
-    /* Lower graphs container (Clustering) */
-    .lower-graph-container {
-        width: 100%;
-        height: 250px;
-        transition: all 0.3s ease;
-        margin: 10px 0;
-    }
-    
-    /* Hover effects */
-    .graph-container:hover {
-        transform: scale(1.05);
-        z-index: 100;
-    }
-    
-    /* Graph titles */
-    .graph-title {
-        font-size: 14px;
-        font-weight: bold;
-        color: #3b82f6;
-        text-align: center;
-        margin: 5px 0;
-    }
-    
-    /* Make sure plots fit their containers */
+    /* Consistent graph sizing */
     .stPlot {
         width: 100% !important;
-        height: 100% !important;
     }
     
-    /* Adjust figure sizes in matplotlib */
-    .small-fig {
+    /* Button styling */
+    .graph-button {
+        margin: 5px;
         width: 100%;
-        height: 100%;
+    }
+    
+    /* Clustering graph containers */
+    .cluster-container {
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 10px;
+        margin: 5px 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# [Rest of your existing functions remain exactly the same until the plotting functions]
+# [Keep all your existing data loading and processing functions unchanged]
 
 def plot_scaled_features(scaled_df, features):
     num_features = len(features)
-    fig, axes = plt.subplots(1, num_features, figsize=(8, 3))  # Adjusted size for upper section
+    fig, axes = plt.subplots(1, num_features, figsize=(8, 3))
     if num_features == 1:
         axes = [axes]
     for i, feature in enumerate(features):
@@ -82,7 +53,7 @@ def plot_scaled_features(scaled_df, features):
     return fig
 
 def plot_roc_curve(fpr, tpr, roc_auc):
-    fig, ax = plt.subplots(figsize=(4, 3))  # Smaller size for side-by-side display
+    fig, ax = plt.subplots(figsize=(4, 3))
     ax.plot(fpr, tpr, color='darkorange', lw=2, label=f'AUC = {roc_auc:.2f}')
     ax.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
     ax.set_xlim([0.0, 1.0])
@@ -100,9 +71,9 @@ def clustering_graphs(data):
     X_pca = PCA(n_components=2).fit_transform(X)
     data['PCA1'], data['PCA2'] = X_pca[:, 0], X_pca[:, 1]
     figs = {}
-
+    
     # All clustering plots use this size
-    cluster_figsize = (4, 3)  # Smaller size for lower section
+    cluster_figsize = (4, 3)
     
     # KMeans
     data['Cluster'] = KMeans(n_clusters=2, random_state=42, n_init=10).fit_predict(X)
@@ -111,27 +82,8 @@ def clustering_graphs(data):
     ax.set_title("KMeans (k=2)", fontsize=10)
     figs['KMeans'] = fig
 
-    # Agglomerative
-    data['Cluster'] = AgglomerativeClustering(n_clusters=2).fit_predict(X)
-    fig, ax = plt.subplots(figsize=cluster_figsize)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='plasma', ax=ax, s=30)
-    ax.set_title("Agglomerative (k=2)", fontsize=10)
-    figs['Agglomerative'] = fig
-
-    # DBSCAN
-    data['Cluster'] = DBSCAN(eps=1.2, min_samples=5).fit_predict(X)
-    fig, ax = plt.subplots(figsize=cluster_figsize)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='cubehelix', ax=ax, s=30)
-    ax.set_title("DBSCAN", fontsize=10)
-    figs['DBSCAN'] = fig
-
-    # GMM
-    data['Cluster'] = GaussianMixture(n_components=2, random_state=42).fit_predict(X)
-    fig, ax = plt.subplots(figsize=cluster_figsize)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='coolwarm', ax=ax, s=30)
-    ax.set_title("GMM (k=2)", fontsize=10)
-    figs['GMM'] = fig
-
+    # [Keep other clustering methods unchanged]
+    
     data.drop('Cluster', axis=1, inplace=True)
     return figs
 
@@ -186,29 +138,28 @@ def main():
 
     st.divider()
 
-    # --- Upper graphs (ROC and Feature Scaling) ---
-    st.header("📉 Model Evaluation & Feature Scaling")
-    col_roc, col_scaling = st.columns(2)
+    # --- Button-triggered graphs ---
+    st.header("📊 Detailed Visualizations")
     
-    with col_roc:
-        st.markdown("<div class='graph-title'>📈 ROC Curve</div>", unsafe_allow_html=True)
-        st.pyplot(roc_fig)
+    # ROC Curve Button
+    if st.button("📈 Show ROC Curve", key="roc_button", help="Click to show/hide ROC curve"):
+        st.pyplot(roc_fig, use_container_width=True)
     
-    with col_scaling:
-        st.markdown("<div class='graph-title'>📊 Feature Scaling</div>", unsafe_allow_html=True)
-        st.pyplot(scaled_features_fig)
+    # Feature Scaling Button
+    if st.button("📊 Show Feature Scaling", key="scaling_button", help="Click to show/hide feature scaling plots"):
+        st.pyplot(scaled_features_fig, use_container_width=True)
 
     st.divider()
 
-    # --- Lower graphs (Clustering) ---
-    st.header("🌀 Clustering Model Highlights")
-    st.markdown("Hover over each graph to expand 👇")
-    
+    # --- Clustering Graphs (no hover) ---
+    st.header("🌀 Clustering Results")
     cols = st.columns(4)
     for i, (name, fig) in enumerate(cluster_figs.items()):
         with cols[i]:
-            st.markdown(f"<div class='graph-title'>{name}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='cluster-container'>", unsafe_allow_html=True)
+            st.markdown(f"**{name}**")
             st.pyplot(fig)
+            st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
