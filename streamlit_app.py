@@ -59,12 +59,12 @@ def load_data(path):
 def feature_engineering(df):
     df['Age'] = 2025 - df['Year_Birth']
     spending_cols = ['MntWines', 'MntFruits', 'MntMeatProducts',
-                     'MntFishProducts', 'MntSweetProducts', 'MntGoldProds']
+                        'MntFishProducts', 'MntSweetProducts', 'MntGoldProds']
     df['Total_Spending'] = df[spending_cols].sum(axis=1)
     spending_cap = df['Total_Spending'].quantile(0.99)
     capped_count = (df['Total_Spending'] > spending_cap).sum()
     df['Total_Spending'] = np.where(df['Total_Spending'] > spending_cap, spending_cap, df['Total_Spending'])
-    
+
     median_income = df['Income'].median()
     df['Income'] = df['Income'].fillna(median_income)
     Q1 = df['Income'].quantile(0.25)
@@ -91,7 +91,7 @@ def feature_engineering(df):
         'PhD': 'Postgraduate'
     })
 
-    drop_cols = ['ID', 'Year_Birth', 'Dt_Customer', 'Z_CostContact', 'Z_Revenue']
+    drop_cols = ['ID', 'Year_Birth', 'Dt_Customer', 'Z_CostContact', 'Z_Revenue', 'Marital_Status']
     df.drop(drop_cols, axis=1, inplace=True)
 
     return df, drop_cols, capped_count, out_count
@@ -106,30 +106,46 @@ def train_rf(data, features, target='Response'):
     model = RandomForestClassifier(n_estimators=100, random_state=42)
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
+    y_prob = model.predict_proba(X_test)[:, 1]
     acc = classification_report(y_test, y_pred, output_dict=True)['accuracy']
+    roc_auc = roc_auc_score(y_test, y_prob)
+    fpr, tpr, thresholds = roc_curve(y_test, y_prob)
+    return acc, roc_auc, fpr, tpr, X_scaled.shape[1] # Return number of features
 
-    # ROC Curve
-    y_proba = model.predict_proba(X_test)[:, 1]
-    fpr, tpr, thresholds = roc_curve(y_test, y_proba)
-    roc_auc = roc_auc_score(y_test, y_proba)
-    roc_fig, roc_ax = plt.subplots(figsize=(4, 3))  # Adjusted size
-    roc_ax.plot(fpr, tpr, label=f"AUC = {roc_auc:.2f}")
-    roc_ax.plot([0, 1], [0, 1], 'k--')
-    roc_ax.set_xlabel("False Positive Rate")
-    roc_ax.set_ylabel("True Positive Rate")
-    roc_ax.set_title("ROC Curve")
-    roc_ax.legend(loc="lower right")
-    roc_fig.tight_layout()  # Add tight_layout() to adjust subplot params
+def scale_features(data, features_to_scale):
+    scaler = StandardScaler()
+    scaled_data = data.copy()
+    scaled_data[features_to_scale] = scaler.fit_transform(scaled_data[features_to_scale])
+    return scaled_data
 
-    # Feature Importance
-    importances = model.feature_importances_
-    feature_names = list(X.columns)
-    feature_importance_fig, feature_importance_ax = plt.subplots(figsize=(4, 3))  # Adjusted size
-    sns.barplot(x=importances, y=feature_names, ax=feature_importance_ax)
-    feature_importance_ax.set_title("Feature Importance")
-    feature_importance_fig.tight_layout()  # Add tight_layout()
+def plot_scaled_features(scaled_df, features):
+    num_features = len(features)
+    fig, axes = plt.subplots(1, num_features, figsize=(4 * num_features, 3)) # Adjusted size
+    if num_features == 1:
+        axes = [axes] # Make sure axes is iterable even for a single plot
+    for i, feature in enumerate(features):
+        sns.histplot(scaled_df[feature], kde=True, ax=axes[i], line_kws={'linewidth': 1}) # Smaller line width
+        axes[i].set_title(f"Scaled {feature}", fontsize=10) # Smaller title
+        axes[i].tick_params(axis='both', which='major', labelsize=8) # Smaller tick labels
+        axes[i].set_xlabel(axes[i].get_xlabel(), fontsize=8) # Smaller x-label
+        axes[i].set_ylabel(axes[i].get_ylabel(), fontsize=8) # Smaller y-label
+    plt.tight_layout(pad=1.5) # Adjust padding
+    return fig
 
-    return acc, roc_fig, feature_importance_fig
+def plot_roc_curve(fpr, tpr, roc_auc):
+    fig, ax = plt.subplots(figsize=(4, 3)) # Adjusted size
+    ax.plot(fpr, tpr, color='darkorange', lw=1.5, label=f'AUC = {roc_auc:.2f}') # Smaller line width
+    ax.plot([0, 1], [0, 1], color='navy', lw=1.5, linestyle='--') # Smaller line width
+    ax.set_xlim([0.0, 1.0])
+    ax.set_ylim([0.0, 1.05])
+    ax.set_xlabel('False Positive Rate', fontsize=8) # Smaller labels
+    ax.set_ylabel('True Positive Rate', fontsize=8) # Smaller labels
+    ax.set_title('ROC Curve', fontsize=10) # Smaller title
+    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller tick labels
+    ax.legend(fontsize=8) # Smaller legend
+    ax.grid(True, linestyle='--', alpha=0.5) # Add a subtle grid
+    plt.tight_layout()
+    return fig
 
 def clustering_graphs(data):
     # Use the clustering features and run PCA for visualization
@@ -140,35 +156,48 @@ def clustering_graphs(data):
     figs = {}
 
     # --- KMeans (k=2) ---
-    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
     data['Cluster'] = KMeans(n_clusters=2, random_state=42, n_init=10).fit_predict(X)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='viridis', ax=ax)
-    ax.set_title("KMeans (k=2)")
-    fig.tight_layout() #ADDED THIS LINE
+    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='viridis', ax=ax, s=20) # Smaller points
+    ax.set_title("KMeans (k=2)", fontsize=10) # Smaller title
+    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller ticks
+    ax.set_xlabel("PCA1", fontsize=8) # Smaller labels
+    ax.set_ylabel("PCA2", fontsize=8) # Smaller labels
+    ax.legend(fontsize=8) # Smaller legend
     figs['KMeans'] = fig
 
     # --- Agglomerative Clustering (k=2) ---
-    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
     data['Cluster'] = AgglomerativeClustering(n_clusters=2).fit_predict(X)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='plasma', ax=ax)
-    ax.set_title("Agglomerative (k=2)")
-    fig.tight_layout() #ADDED THIS LINE
+    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='plasma', ax=ax, s=20) # Smaller points
+    ax.set_title("Agglomerative (k=2)", fontsize=10) # Smaller title
+    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller ticks
+    ax.set_xlabel("PCA1", fontsize=8) # Smaller labels
+    ax.set_ylabel("PCA2", fontsize=8) # Smaller labels
+    ax.legend(fontsize=8) # Smaller legend
     figs['Agglomerative'] = fig
 
     # --- DBSCAN ---
-    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
     data['Cluster'] = DBSCAN(eps=1.2, min_samples=5).fit_predict(X)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='cubehelix', ax=ax)
-    ax.set_title("DBSCAN")
-    fig.tight_layout() #ADDED THIS LINE
+    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='cubehelix', ax=ax, s=20) # Smaller points
+    ax.set_title("DBSCAN", fontsize=10) # Smaller title
+    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller ticks
+    ax.set_xlabel("PCA1", fontsize=8) # Smaller labels
+    ax.set_ylabel("PCA2", fontsize=8) # Smaller labels
+    ax.legend(fontsize=8) # Smaller legend
     figs['DBSCAN'] = fig
 
     # --- Gaussian Mixture Model (k=2) ---
-    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
     data['Cluster'] = GaussianMixture(n_components=2, random_state=42).fit_predict(X)
-    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='coolwarm', ax=ax)
-    ax.set_title("GMM (k=2)")
-    fig.tight_layout() #ADDED THIS LINE
+    fig, ax = plt.subplots(figsize=(4, 3))  # Adjusted size for better fit
+    sns.scatterplot(data=data, x='PCA1', y='PCA2', hue='Cluster', palette='coolwarm', ax=ax, s=20) # Smaller points
+    ax.set_title("GMM (k=2)", fontsize=10) # Smaller title
+    ax.tick_params(axis='both', which='major', labelsize=8) # Smaller ticks
+    ax.set_xlabel("PCA1", fontsize=8) # Smaller labels
+    ax.set_ylabel("PCA2", fontsize=8) # Smaller labels
+    ax.legend(fontsize=8) # Smaller legend
+
     figs['GMM'] = fig
 
     # Clean up temporary column
@@ -184,17 +213,17 @@ def main():
 
     # --- Sidebar Filter Options ---
     st.sidebar.markdown("<div class='sidebar-header'>Filter Options</div>", unsafe_allow_html=True)
-    
+
     rel_options = list(df["Marital_Group"].unique())
     edu_options = list(df["Education"].unique())
-    
+
     selected_rel = st.sidebar.multiselect("Select Relationship (Marital Group)", options=rel_options, default=rel_options)
     selected_edu = st.sidebar.multiselect("Select Education Level", options=edu_options, default=edu_options)
-    
+
     min_income = int(df["Income"].min())
     max_income = int(df["Income"].max())
     selected_income = st.sidebar.slider("Income Range", min_value=min_income, max_value=max_income, value=(min_income, max_income))
-    
+
     # --- Apply filters to data ---
     filtered_df = df[
         (df["Marital_Group"].isin(selected_rel)) &
@@ -202,14 +231,20 @@ def main():
         (df["Income"] >= selected_income[0]) &
         (df["Income"] <= selected_income[1])
     ]
-    
-    # --- Compute main model accuracy using filtered data ---
+
+    # --- Compute main model accuracy and ROC curve using filtered data ---
     used_features = ['Income', 'Age', 'Total_Spending', 'Education', 'Marital_Group', 'Children']
-    accuracy, roc_fig, feature_importance_fig = train_rf(filtered_df, used_features)
-    
+    accuracy, roc_auc, fpr, tpr, n_features = train_rf(filtered_df, used_features)
+
+    # --- Scale features for visualization ---
+    features_to_scale = ['Income', 'Age', 'Total_Spending']
+    scaled_df = scale_features(filtered_df.copy(), features_to_scale)
+    scaled_features_fig = plot_scaled_features(scaled_df, features_to_scale)
+    roc_fig = plot_roc_curve(fpr, tpr, roc_auc)
+
     # --- Clustering visualizations based on filtered data ---
-    cluster_figs = clustering_graphs(filtered_df)
-    
+    cluster_figs = clustering_graphs(filtered_df.copy())
+
     # --- Display Insights and Performance ---
     st.header("📊 Insights and Model Performance")
     with st.container():
@@ -221,37 +256,36 @@ def main():
             st.write(f"**Deleted columns:** {', '.join(dropped_cols)}")
             st.write(f"**Features used for model:** {', '.join(used_features)}")
         with col2:
-            st.subheader("✅ Random Forest Accuracy")
+            st.subheader("✅ Random Forest Performance")
             st.metric(label="Model Accuracy", value=f"{accuracy:.2%}")
-    
+            st.metric(label="ROC AUC Score", value=f"{roc_auc:.2f}")
+
     st.divider()
 
-    # --- Display Model Performance Highlights (ROC Curve and Feature Importance) ---
-    st.header("🎯 Model Performance Highlights")
-    st.markdown("Hover over each graph to expand 👇")
-    cols = st.columns(2)  # Reduced to 2 columns
-
-    with cols[0]:
-        st.markdown("<div class='title-highlight'>ROC Curve</div>", unsafe_allow_html=True)
+    # --- Display Smaller ROC Curve and Feature Scaling Side-by-Side ---
+    st.header("📉 Model Evaluation & Feature Scaling")
+    cols_top = st.columns(2)
+    with cols_top[0]:
+        st.subheader("📈 ROC Curve")
         st.markdown("<div class='graph-container'>", unsafe_allow_html=True)
         st.pyplot(roc_fig)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with cols[1]:
-        st.markdown("<div class='title-highlight'>Feature Importance</div>", unsafe_allow_html=True)
+    with cols_top[1]:
+        st.subheader("📊 Feature Scaling")
         st.markdown("<div class='graph-container'>", unsafe_allow_html=True)
-        st.pyplot(feature_importance_fig)
+        st.pyplot(scaled_features_fig)
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
-    
+
     # --- Display Model Highlights (Clustering Graphs) ---
     st.header("🌀 Clustering Model Highlights")
     st.markdown("Hover over each graph to expand 👇")
-    cols = st.columns(4)
+    cols_clustering = st.columns(4)
     model_names = list(cluster_figs.keys())
     for i, name in enumerate(model_names):
-        with cols[i]:
+        with cols_clustering[i]:
             st.markdown(f"<div class='title-highlight'>{name}</div>", unsafe_allow_html=True)
             st.markdown("<div class='graph-container'>", unsafe_allow_html=True)
             st.pyplot(cluster_figs[name])
