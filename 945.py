@@ -11,6 +11,10 @@ from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.mixture import GaussianMixture
 from sklearn.decomposition import PCA
 
+st.cache_data.clear()
+st.cache_resource.clear()
+
+
 # --- Set page configuration ---
 st.set_page_config(layout="wide")
 
